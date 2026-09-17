@@ -1,6 +1,6 @@
-# MongoDB Lecture 02 — Query Operators
+# MongoDB Lecture 02 — Query & Update Operators
 
-A hands-on walkthrough of MongoDB **query operators** (logical, comparison, type, array, and regex operators) using `mongosh`.
+A hands-on walkthrough of MongoDB **query operators** (logical, comparison, type, array, and regex operators) and **update operators** (field update, array update, and upsert) using `mongosh`.
 
 > **Environment:** MongoDB 6.0.13 · Mongosh 2.10.0 · Local instance (`mongodb://127.0.0.1:27017`)
 
@@ -8,7 +8,7 @@ A hands-on walkthrough of MongoDB **query operators** (logical, comparison, type
 
 ## Table of Contents
 
-**Part 1**
+**Part 1 — Query Operators (Basics)**
 - [1. Setup — Database & Collection](#1-setup--database--collection)
 - [2. Projections in find()](#2-projections-in-find)
 - [3. Logical Operators — $and / $or](#3-logical-operators--and--or)
@@ -16,7 +16,7 @@ A hands-on walkthrough of MongoDB **query operators** (logical, comparison, type
 - [5. The $not Operator](#5-the-not-operator)
 - [6. Element Operator — $exists](#6-element-operator--exists)
 
-**Part 2**
+**Part 2 — Query Operators (Advanced)**
 - [7. Logical Operator — $nor](#7-logical-operator--nor)
 - [8. Type Operator — $type](#8-type-operator--type)
 - [9. Set Operators — $in / $nin](#9-set-operators--in--nin)
@@ -27,9 +27,19 @@ A hands-on walkthrough of MongoDB **query operators** (logical, comparison, type
 - [14. $all vs $elemMatch — What's the Difference?](#14-all-vs-elemmatch--whats-the-difference)
 - [15. Pattern Matching — $regex](#15-pattern-matching--regex)
 
+**Part 3 — Update Operators**
+- [16. find() Second Argument vs updateOne() — Don't Confuse Them](#16-find-second-argument-vs-updateone--dont-confuse-them)
+- [17. Renaming a Field — $rename](#17-renaming-a-field--rename)
+- [18. Multiplying a Field — $mul](#18-multiplying-a-field--mul)
+- [19. Setting a Bound — $max / $min](#19-setting-a-bound--max--min)
+- [20. Incrementing a Field — $inc](#20-incrementing-a-field--inc)
+- [21. Updating a Nested Object Field — Dot Notation](#21-updating-a-nested-object-field--dot-notation)
+- [22. Insert-if-Not-Found — upsert](#22-insert-if-not-found--upsert)
+- [23. Array Update Operators — $push / $pop / $pull / $pullAll / $addToSet / $unset](#23-array-update-operators--push--pop--pull--pullall--addtoset--unset)
+
 **Reference**
-- [16. Common Mistakes Seen in This Session](#16-common-mistakes-seen-in-this-session)
-- [17. Quick Reference Cheat Sheet](#17-quick-reference-cheat-sheet)
+- [24. Common Mistakes Seen in This Session](#24-common-mistakes-seen-in-this-session)
+- [25. Quick Reference Cheat Sheet](#25-quick-reference-cheat-sheet)
 
 ---
 
@@ -441,7 +451,259 @@ db.emp.find({ name: { $regex: "a" } })     // contains lowercase "a" anywhere
 
 ---
 
-## 16. Common Mistakes Seen in This Session
+## 16. find() Second Argument vs updateOne() — Don't Confuse Them
+
+`find()`'s second argument is a **projection**, not a way to change data — it can never modify a document, no matter what operator you put in it.
+
+```js
+// This does NOT update anything — it's just a (slightly odd) projection
+db.emp.find({ name: "Hammad" }, { city: "Lahore" })
+// → [ { _id: 'emp_002', city: 'Lahore' } ]   (just returns the _id + city fields)
+
+// ❌ Wrong — trying to use $set inside find()'s projection
+// db.emp.find({ name: "Hammad" }, { $set: { city: "Lahore" } })
+// → MongoServerError: FieldPath field names may not start with '$'
+
+// ❌ Wrong — same idea, still inside find()
+// db.emp.find({ name: "Hammad" }, { city: { $set: "Lahore" } })
+// → MongoServerError: Unknown expression $set
+```
+
+To actually change data you must use `updateOne()` / `updateMany()`, **and** the update document must use an atomic operator like `$set` — a plain field/value object is rejected:
+
+```js
+// ❌ Wrong — no atomic operator
+// db.emp.updateOne({ name: "Hammad" }, { city: "Lahore" })
+// → MongoInvalidArgumentError: Update document requires atomic operators
+
+// ✅ Correct
+db.emp.updateOne({ name: "Hammad" }, { $set: { city: "Lahore" } })
+```
+
+`updateMany()` applies the same update to **every** matching document:
+
+```js
+db.emp.updateMany({ department: "sales" }, { $set: { department: "Sales" } })
+```
+
+> 💡 Remember `updateOne()` only touches the **first** matching document — running `db.emp.updateOne({ department: "Sales" }, { $set: { city: "Lahore" } })` after the above only updates one of the (now two) `"Sales"` employees, not both.
+
+---
+
+## 17. Renaming a Field — `$rename`
+
+Renames a field, keeping its value.
+
+```js
+db.emp.updateOne({ name: "Owais" }, { $set: { designation: "Manager" } })
+
+// Rename "designation" to "role"
+db.emp.updateOne({ name: "Owais" }, { $rename: { designation: "role" } })
+```
+
+---
+
+## 18. Multiplying a Field — `$mul`
+
+Multiplies a numeric field by the given value **in place**.
+
+```js
+// ❌ Wrong attempts — $mul is an UPDATE operator, not usable inside find()
+// db.emp.find({ department: "Sales" }, { $mul: { salary: 12 } })
+// → MongoServerError: FieldPath field names may not start with '$'
+// db.emp.find({ department: "Sales" }, { salary: { $mul: 12 } })
+// → MongoServerError: Unknown expression $mul
+// db.emp.updateOne({ department: "Sales" }, { salary: { $mul: 12 } })
+// → MongoInvalidArgumentError: Update document requires atomic operators
+
+// ✅ Correct
+db.emp.updateOne({ department: "Sales" }, { $mul: { salary: 12 } })
+```
+
+Multiplying by a decimal scales the value down/up proportionally (e.g. a 10% cut, a 10% raise):
+
+```js
+db.emp.updateOne({ name: "Jawwad" }, { $mul: { salary: 0.1 } })   // reduce to 10%
+db.emp.updateOne({ name: "Jawwad" }, { $mul: { salary: 1.1 } })   // increase by 10%
+```
+
+> 💡 Multiplying decimals can leave a floating-point result like `6050.000000000001` — this is normal JavaScript/BSON floating-point behavior, not a bug.
+
+You can also multiply using a variable defined in the shell session:
+
+```js
+let quantityy = 3
+db.products.updateOne({ name: "Mobile" }, { $mul: { unitPrice: quantityy } })
+```
+
+---
+
+## 19. Setting a Bound — `$max` / `$min`
+
+### `$max` — only updates the field if the new value is **greater** than the current value
+
+```js
+db.emp.updateOne({ name: "Irfan" }, { $max: { salary: 8300 } })
+// → modifiedCount: 0  (8300 < current salary 84000, so nothing changes)
+
+db.emp.updateOne({ name: "Irfan" }, { $max: { salary: 85000 } })
+// → modifiedCount: 1  (85000 > 84000, so salary updates to 85000)
+```
+
+### `$min` — only updates the field if the new value is **less** than the current value
+
+```js
+db.emp.updateOne({ name: "Irfan" }, { $min: { salary: 86000 } })
+// → modifiedCount: 0  (86000 > current salary 85000, so nothing changes)
+
+db.emp.updateOne({ name: "Irfan" }, { $min: { salary: 84000 } })
+// → modifiedCount: 1  (84000 < 85000, so salary updates to 84000)
+```
+
+---
+
+## 20. Incrementing a Field — `$inc`
+
+Adds (or subtracts, with a negative value) to a numeric field.
+
+```js
+db.products.updateOne({ name: "Mobile" }, { $inc: { quantity: 3 } })    // +3
+db.products.updateOne({ name: "Mobile" }, { $inc: { quantity: -1 } })   // -1
+```
+
+---
+
+## 21. Updating a Nested Object Field — Dot Notation
+
+To update **one key inside a nested/embedded object**, use a quoted "dot path" string as the field name — you cannot use `object.key` unquoted as a key.
+
+```js
+// ❌ Wrong — unquoted dot notation is invalid JS object syntax
+// db.emp.updateOne({ name: "Owais" }, { $set: { attendance.feb: "95%" } })
+// → SyntaxError: Unexpected token, expected ","
+
+// ✅ Correct — the whole path goes in quotes as a single key
+db.emp.updateOne({ name: "Owais" }, { $set: { "attendance.feb": "95%" } })
+```
+
+This updates only the `feb` key inside `attendance`, leaving `jan` and `mar` untouched.
+
+---
+
+## 22. Insert-if-Not-Found — `upsert`
+
+Passing `{ upsert: true }` as a **third argument** to `updateOne()` inserts a new document if no document matches the filter, instead of doing nothing.
+
+```js
+// ❌ Wrong — trying to reference an undeclared variable as _id
+// db.emp.updateOne({ _id: emp_008 }, { name: "Hamza", ... })
+// → ReferenceError: emp_008 is not defined
+// (Remember: string _id values must be quoted, e.g. "emp_008")
+
+// ❌ Wrong — "$upsert" is not a field; upsert is an OPTION, not part of $set
+// db.emp.updateOne({ _id: emp_008 }, { $set: { ... }, $upsert: true })
+// → invalid
+
+// ❌ Wrong — option key must be "upsert", not "$upsert"
+// db.emp.updateOne({ name: "Hamza" }, { $set: { ... } }, { $upsert: true })
+// → runs, but does nothing (matchedCount: 0, upsertedCount: 0) — the option is silently ignored
+
+// ✅ Correct — third argument is a plain options object with "upsert": true
+db.emp.updateOne(
+  { name: "Hamza" },
+  {
+    $set: {
+      name: "Hamza",
+      email: "hamza@gmail.com",
+      department: "Production",
+      salary: 97000,
+      role: "Senior Developer",
+      city: "Karachi"
+    }
+  },
+  { upsert: true }
+)
+// → upsertedCount: 1 — a brand-new document is inserted since no "Hamza" existed
+```
+
+> 💡 With `upsert: true`, if the filter finds a match, it updates normally; if it finds **no** match, it inserts a new document combining the filter fields and the `$set` fields.
+
+---
+
+## 23. Array Update Operators — `$push` / `$pop` / `$pull` / `$pullAll` / `$addToSet` / `$unset`
+
+### `$push` — adds a single element to the end of an array
+
+```js
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "HTML" } })
+```
+
+> 🚫 Passing an array to `$push` adds the **whole array as one nested element**, not as separate items:
+> ```js
+> // ⚠️ Adds ["HTML", "CSS"] as a single nested array element inside skills
+> db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: ["HTML", "CSS"] } })
+> // result: skills: [ 'GIT', 'GITHUB', 'FLUTTER', 'C#', [ 'HTML', 'CSS' ] ]
+> ```
+> To push multiple values properly, use `$each`: `{ $push: { skills: { $each: ["HTML", "CSS"] } } }`.
+
+> 🚫 `$push` does **not** de-duplicate — pushing the same value twice adds it twice:
+> ```js
+> db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "FLUTTER" } })
+> db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "FLUTTER" } })
+> // → skills now contains "FLUTTER" twice
+> ```
+
+### `$addToSet` — adds an element only if it doesn't already exist (no duplicates)
+
+```js
+db.emp.updateOne({ name: "Jawwad" }, { $addToSet: { skills: "FLUTTER" } })
+// First call: adds it (modifiedCount: 1)
+// Second call with the same value: modifiedCount: 0 — already present, skipped
+```
+
+### `$unset` — removes a field entirely from the document
+
+```js
+db.emp.updateOne({ name: "Jawwad" }, { $unset: { skills: "" } })
+```
+
+> 💡 The value given to `$unset` (here `""`) doesn't matter — the field is removed either way.
+
+### `$pop` — removes the first or last element of an array
+
+```js
+db.emp.updateOne({ name: "Jawwad" }, { $pop: { skills: 1 } })    // removes the LAST element
+db.emp.updateOne({ name: "Jawwad" }, { $pop: { skills: -1 } })   // removes the FIRST element
+```
+
+> 🚫 `$pop` needs its value wrapped in an object — `{ $pop: skills }` alone throws `ReferenceError: skills is not defined` (it's being read as a bare JS variable, not a field name).
+
+### `$pull` — removes all array elements matching a given value/condition
+
+```js
+db.emp.updateOne({ name: "Jawwad" }, { $pull: { skills: "FLUTTER" } })
+```
+
+### `$pullAll` — removes all occurrences of several exact values at once
+
+```js
+// ❌ Wrong — $pullAll requires an ARRAY of values, not a single value
+// db.emp.updateOne({ name: "Jawwad" }, { $pullAll: { skills: 1 } })
+// → MongoServerError: $pullAll requires an array argument but was given a int
+
+// ❌ Wrong — $pullAll's value must itself be an object naming the field
+// db.emp.updateOne({ name: "Jawwad" }, { $pullAll: 1 })
+// → MongoServerError: Modifiers operate on fields but we found type int instead
+
+// ✅ Correct — array of exact values to remove
+db.emp.updateOne({ name: "Jawwad" }, { $pullAll: { skills: ["CSS", "GITHUB"] } })
+```
+
+> 💡 **`$pull` vs `$pullAll`:** `$pull` can take a condition (e.g. `{ $gt: 10 }`) and removes every matching element; `$pullAll` only takes an exact list of values to remove, with no conditions.
+
+---
+
+## 24. Common Mistakes Seen in This Session
 
 | Mistake | Error | Fix |
 |---|---|---|
@@ -454,10 +716,20 @@ db.emp.find({ name: { $regex: "a" } })     // contains lowercase "a" anywhere
 | Using a wrong-case type alias (`"String"`) | `Unknown type name alias: String` | Use the exact lowercase alias: `"string"` |
 | Writing `$set: projects: {...}` or `$set: [ projects: {...} ]` | `SyntaxError` | Nest correctly: `{ $set: { projects: [ {...}, {...} ] } }` |
 | Passing an array of objects to `$elemMatch` | `SyntaxError` / invalid usage | Put all conditions inside **one** object: `{ $elemMatch: { field1: ..., field2: ... } }` |
+| Trying to use `$set`/`$mul` inside `find()`'s projection | `FieldPath field names may not start with '$'` / `Unknown expression` | Update operators only work with `updateOne()`/`updateMany()`, never inside `find()` |
+| Passing a plain object (no operator) to `updateOne()` | `Update document requires atomic operators` | Always wrap changes in `$set`, `$inc`, etc. |
+| Using an unquoted, undeclared value as `_id` (e.g. `emp_008`) | `ReferenceError: ... is not defined` | Quote string ids: `"emp_008"` |
+| Writing `{ $upsert: true }` instead of the 3rd-argument option | Silently does nothing (no error, no insert) | Pass `{ upsert: true }` (no `$`) as the **third** argument to `updateOne()` |
+| Using unquoted dot notation for a nested field (`attendance.feb`) | `SyntaxError: Unexpected token, expected ","` | Quote the whole path as one key: `{ "attendance.feb": "95%" } ` |
+| Pushing an array into `$push` without `$each` | Adds the array as one nested element instead of separate items | Use `{ $push: { field: { $each: [...] } } }` for multiple items |
+| Calling `$pop` with a bare field name instead of an object | `ReferenceError: <field> is not defined` | Use `{ $pop: { field: 1 } }` (1 = last, -1 = first) |
+| Passing a single value (not an array) to `$pullAll` | `$pullAll requires an array argument` | Always give `$pullAll` an array: `{ $pullAll: { field: [v1, v2] } }` |
 
 ---
 
-## 17. Quick Reference Cheat Sheet
+## 25. Quick Reference Cheat Sheet
+
+### Query Operators
 
 | Task | Command |
 |---|---|
@@ -480,6 +752,27 @@ db.emp.find({ name: { $regex: "a" } })     // contains lowercase "a" anywhere
 | Pattern match on a string | `db.emp.find({ field: { $regex: "pattern" } })` |
 | Case-insensitive pattern match | `db.emp.find({ field: { $regex: "pattern", $options: "i" } })` |
 
+### Update Operators
+
+| Task | Command |
+|---|---|
+| Set/replace a field's value | `db.emp.updateOne({ filter }, { $set: { field: value } })` |
+| Rename a field | `db.emp.updateOne({ filter }, { $rename: { oldName: "newName" } })` |
+| Multiply a numeric field | `db.emp.updateOne({ filter }, { $mul: { field: factor } })` |
+| Only update if new value is greater | `db.emp.updateOne({ filter }, { $max: { field: value } })` |
+| Only update if new value is smaller | `db.emp.updateOne({ filter }, { $min: { field: value } })` |
+| Increment/decrement a number | `db.emp.updateOne({ filter }, { $inc: { field: amount } })` |
+| Update a field inside a nested object | `db.emp.updateOne({ filter }, { $set: { "parent.child": value } })` |
+| Insert if no match found | `db.emp.updateOne({ filter }, { $set: { ... } }, { upsert: true })` |
+| Add one item to an array | `db.emp.updateOne({ filter }, { $push: { arrField: value } })` |
+| Add multiple items to an array | `db.emp.updateOne({ filter }, { $push: { arrField: { $each: [v1, v2] } } })` |
+| Add item only if not already present | `db.emp.updateOne({ filter }, { $addToSet: { arrField: value } })` |
+| Remove a field entirely | `db.emp.updateOne({ filter }, { $unset: { field: "" } })` |
+| Remove first/last array element | `db.emp.updateOne({ filter }, { $pop: { arrField: -1 } })` *(1 = last, -1 = first)* |
+| Remove all matching elements | `db.emp.updateOne({ filter }, { $pull: { arrField: value } })` |
+| Remove several exact values at once | `db.emp.updateOne({ filter }, { $pullAll: { arrField: [v1, v2] } })` |
+| Update every matching document | `db.emp.updateMany({ filter }, { $set: { ... } })` |
+
 ---
 
-*Recorded via `Start-Transcript` in PowerShell for student reference — MongoDB Query Operators (Parts 1 & 2).*
+*Recorded via `Start-Transcript` in PowerShell for student reference — MongoDB Query & Update Operators (Parts 1, 2 & 3 — complete).*

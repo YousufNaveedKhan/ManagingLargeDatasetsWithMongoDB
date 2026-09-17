@@ -1,5 +1,5 @@
 // ============================================================
-// MongoDB Lecture 02 — Query Operators (Parts 1 & 2)
+// MongoDB Lecture 02 — Query & Update Operators (Parts 1, 2 & 3 — COMPLETE)
 // Run these commands inside `mongosh`, one at a time (or in blocks)
 // Environment: MongoDB 6.0.13 | Mongosh 2.10.0
 // ============================================================
@@ -136,7 +136,6 @@ db.emp.find({ skills: { $exists: false } })
 // 7. LOGICAL OPERATOR — $nor
 // ------------------------------------------------------------
 
-// Matches documents that satisfy NONE of the conditions
 db.emp.find({ $nor: [ { city: "Lahore" }, { department: "sales" } ] })
 
 
@@ -284,5 +283,324 @@ db.emp.find({ skills: { $all: ["GITHUB", "GIT"] } })   // Jawwad has both
 // conditions TOGETHER (used for arrays of embedded documents, e.g. projects).
 // See README section 14 for the full comparison table.
 // ------------------------------------------------------------
+
+
+// ============================================================
+// PART 3 — UPDATE OPERATORS
+// ============================================================
+
+// ------------------------------------------------------------
+// 16. find() SECOND ARGUMENT vs updateOne() — DON'T CONFUSE THEM
+// ------------------------------------------------------------
+
+// find()'s 2nd argument is a PROJECTION — it can never change data
+db.emp.find({ name: "Hammad" }, { city: "Lahore" })
+// → [ { _id: 'emp_002', city: 'Lahore' } ]  (just returns _id + city)
+
+// ❌ WRONG — trying to use $set inside find()'s projection
+// db.emp.find({ name: "Hammad" }, { $set: { city: "Lahore" } })
+// → MongoServerError: FieldPath field names may not start with '$'
+
+// ❌ WRONG — same mistake, different shape
+// db.emp.find({ name: "Hammad" }, { city: { $set: "Lahore" } })
+// → MongoServerError: Unknown expression $set
+
+// ❌ WRONG — updateOne() needs an ATOMIC OPERATOR, not a plain object
+// db.emp.updateOne({ name: "Hammad" }, { city: "Lahore" })
+// → MongoInvalidArgumentError: Update document requires atomic operators
+
+// ✅ CORRECT
+db.emp.updateOne({ name: "Hammad" }, { $set: { city: "Lahore" } })
+
+db.emp.find({ name: "Hammad" })
+
+// Add more employees
+db.emp.insertMany([
+  {
+    name: "Irfan",
+    email: "irfan@gmail.com",
+    department: "Marketing",
+    salary: 84000,
+    city: "Peshawar"
+  },
+  {
+    name: "Owais",
+    email: "owais@gmail.com",
+    department: "sales",
+    salary: 25000,
+    city: "Karachi"
+  }
+])
+
+// updateMany() — updates ALL matching documents
+db.emp.updateMany({ department: "sales" }, { $set: { department: "Sales" } })
+
+db.emp.find()
+
+// NOTE: updateOne() only touches the FIRST match — with two "Sales" employees
+// now, this only updates one of them
+db.emp.updateOne({ department: "Sales" }, { $set: { city: "Lahore" } })
+
+db.emp.find()
+
+
+// ------------------------------------------------------------
+// 17. RENAMING A FIELD — $rename
+// ------------------------------------------------------------
+
+db.emp.updateOne({ name: "Owais" }, { $set: { designation: "Manager" } })
+
+db.emp.find({ name: "Owais" })
+
+// Rename "designation" to "role"
+db.emp.updateOne({ name: "Owais" }, { $rename: { designation: "role" } })
+
+db.emp.find({ name: "Owais" })
+
+
+// ------------------------------------------------------------
+// 18. MULTIPLYING A FIELD — $mul
+// ------------------------------------------------------------
+
+// ❌ WRONG — $mul is an UPDATE operator, cannot be used inside find()
+// db.emp.find({ department: "Sales" }, { $mul: { salary: 12 } })
+// → MongoServerError: FieldPath field names may not start with '$'
+// db.emp.find({ department: "Sales" }, { salary: { $mul: 12 } })
+// → MongoServerError: Unknown expression $mul
+// db.emp.updateOne({ department: "Sales" }, { salary: { $mul: 12 } })
+// → MongoInvalidArgumentError: Update document requires atomic operators
+
+// ✅ CORRECT
+db.emp.updateOne({ department: "Sales" }, { $mul: { salary: 12 } })
+
+db.students.find()   // (unrelated collection check — empty)
+
+db.emp.find()
+
+db.createCollection("products")
+
+db.products.insertMany([
+  { name: "Laptop", quantity: 12, unitPrice: 35000 },
+  { name: "Mobile", quantity: 3, unitPrice: 15000 }
+])
+
+// Reduce salary to 10% (i.e. a big cut) then increase by 10%
+db.emp.updateOne({ name: "Jawwad" }, { $mul: { salary: 0.1 } })
+db.emp.find()
+
+db.emp.updateOne({ name: "Jawwad" }, { $mul: { salary: 1.1 } })
+// NOTE: result may show floating-point noise, e.g. 6050.000000000001 — normal behavior
+db.emp.find()
+
+db.products.find()
+
+db.products.updateOne({ name: "Mobile" }, { $mul: { quantity: 3 } })
+db.products.find()
+
+// Multiplying with a shell variable
+// ❌ WRONG — referencing an undeclared variable
+// db.products.updateOne({ name: "Mobile" }, { $mul: { unitPrice: quantity } })
+// → ReferenceError: quantity is not defined
+
+let unitPrice = 300
+let quantityy = 3
+
+// ✅ CORRECT
+db.products.updateOne({ name: "Mobile" }, { $mul: { unitPrice: quantityy } })
+db.products.find()
+
+
+// ------------------------------------------------------------
+// 19. SETTING A BOUND — $max / $min
+// ------------------------------------------------------------
+
+// $max — only updates if the new value is GREATER than the current value
+db.emp.updateOne({ name: "Irfan" }, { $max: { salary: 8300 } })    // → modifiedCount: 0
+db.emp.find()
+
+db.emp.updateOne({ name: "Irfan" }, { $max: { salary: 85000 } })   // → modifiedCount: 1
+db.emp.find()
+
+// $min — only updates if the new value is LESS than the current value
+db.emp.updateOne({ name: "Irfan" }, { $min: { salary: 86000 } })   // → modifiedCount: 0
+db.emp.find()
+
+db.emp.updateOne({ name: "Irfan" }, { $min: { salary: 84000 } })   // → modifiedCount: 1
+db.emp.find()
+
+
+// ------------------------------------------------------------
+// 20. INCREMENTING A FIELD — $inc
+// ------------------------------------------------------------
+
+db.products.updateOne({ name: "Mobile" }, { $inc: { quantity: 3 } })
+db.products.find()
+
+db.products.updateOne({ name: "Mobile" }, { $inc: { quantity: -1 } })
+db.products.find()
+
+db.emp.find()
+
+
+// ------------------------------------------------------------
+// 21. UPDATING A NESTED OBJECT FIELD — DOT NOTATION
+// ------------------------------------------------------------
+
+db.emp.updateOne(
+  { name: "Owais" },
+  { $set: { attendance: { jan: "45%", feb: "98%", mar: "79" } } }
+)
+db.emp.find()
+
+// ❌ WRONG — unquoted dot notation is invalid object-key syntax
+// db.emp.updateOne({ name: "Owais" }, { $set: { attendance.feb: "95%" } })
+// → SyntaxError: Unexpected token, expected ","
+
+// ✅ CORRECT — quote the whole dotted path as ONE key
+db.emp.updateOne({ name: "Owais" }, { $set: { "attendance.feb": "95%" } })
+db.emp.find()
+
+db.emp.updateOne({ name: "Owais" }, { $set: { "attendance.feb": "98%" } })
+db.emp.find()
+
+
+// ------------------------------------------------------------
+// 22. INSERT-IF-NOT-FOUND — upsert
+// ------------------------------------------------------------
+
+// ❌ WRONG — emp_008 must be a quoted string, not a bare identifier
+// db.emp.updateOne({ _id: emp_008 }, { name: "Hamza", ... })
+// → ReferenceError: emp_008 is not defined
+
+// ❌ WRONG — mixing $set object with a stray 4th positional object
+// db.emp.updateOne({ _id: emp_008 }, { $set: { ... } } { $upsert: true } })
+// → SyntaxError
+
+// ❌ WRONG — "$upsert" as a field inside the update document does nothing useful
+// db.emp.updateOne({ name: "Hamza" }, { $set: { ... } }, { $upsert: true } )
+// → runs but matchedCount: 0, upsertedCount: 0 (option key must be "upsert", no "$")
+
+// ✅ CORRECT — third argument is { upsert: true }
+db.emp.updateOne(
+  { name: "Hamza" },
+  {
+    $set: {
+      name: "Hamza",
+      email: "hamza@gmail.com",
+      department: "Production",
+      salary: 97000,
+      role: "Senior Developer",
+      city: "Karachi"
+    }
+  },
+  { upsert: true }
+)
+
+db.emp.find()
+
+db.emp.updateOne(
+  { name: "Abu Hurerah" },
+  {
+    $set: {
+      name: "Abu Hurerah",
+      email: "abh@gmail.com",
+      department: "Production",
+      salary: 75000,
+      role: "Senior Developer",
+      city: "Karachi"
+    }
+  },
+  { upsert: true }
+)
+
+db.emp.find()
+
+
+// ------------------------------------------------------------
+// 23. ARRAY UPDATE OPERATORS — $push / $pop / $pull / $pullAll / $addToSet / $unset
+// ------------------------------------------------------------
+
+// $push — adds ONE element to the end of the array
+// ⚠️ Passing an array pushes it as a single NESTED element, not separate items
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: ["HTML", "CSS"] } })
+db.emp.find()   // skills now has a nested ['HTML','CSS'] inside it — probably not what you want
+
+// $unset — removes a field entirely
+db.emp.updateOne({ name: "Jawwad" }, { $unset: { skills: "" } })
+db.emp.find()
+
+// Reset skills cleanly
+db.emp.updateOne({ name: "Jawwad" }, { $set: { skills: ["JS", "Bootstrap"] } })
+db.emp.find()
+
+// ❌ WRONG — $push only accepts ONE value per call this way
+// db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "HTML", "CSS" } })
+// → SyntaxError
+
+// ✅ CORRECT — push one at a time
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "HTML" } })
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "CSS" } })
+db.emp.find()
+
+db.emp.updateOne({ name: "Jawwad" }, { $set: { skills: ["GIT", "GITHUB"] } })
+db.emp.find()
+
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "CSS" } })
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "HTML" } })
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "FLUTTER" } })
+db.emp.find()
+
+// $pull — removes ALL matching elements
+db.emp.updateOne({ name: "Jawwad" }, { $pull: { skills: "FLUTTER" } })
+db.emp.find()
+
+// $push does NOT de-duplicate — pushing the same value twice adds it twice
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "FLUTTER" } })
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "FLUTTER" } })
+db.emp.find()   // "FLUTTER" appears twice
+
+db.emp.updateOne({ name: "Jawwad" }, { $pull: { skills: "FLUTTER" } })
+db.emp.find()   // $pull removes ALL matching occurrences at once
+
+// $addToSet — adds only if not already present (no duplicates)
+db.emp.updateOne({ name: "Jawwad" }, { $addToSet: { skills: "FLUTTER" } })
+db.emp.find()
+
+db.emp.updateOne({ name: "Jawwad" }, { $addToSet: { skills: "FLUTTER" } })
+// → modifiedCount: 0, already present
+
+// $pop — removes first (-1) or last (1) array element
+// ❌ WRONG — needs to be wrapped in an object
+// db.emp.updateOne({ name: "Jawwad" }, { $pop: skills })
+// → ReferenceError: skills is not defined
+
+// ✅ CORRECT
+db.emp.updateOne({ name: "Jawwad" }, { $pop: { skills: 1 } })    // remove LAST
+db.emp.find()
+
+db.emp.updateOne({ name: "Jawwad" }, { $pop: { skills: -1 } })   // remove FIRST
+db.emp.find()
+
+// $pullAll — removes several EXACT values at once (array required)
+// ❌ WRONG — a single value instead of an array
+// db.emp.updateOne({ name: "Jawwad" }, { $pullAll: { skills: 1 } })
+// → MongoServerError: $pullAll requires an array argument but was given a int
+
+// ❌ WRONG — modifier value must name the field, not be a bare number
+// db.emp.updateOne({ name: "Jawwad" }, { $pullAll: 1 })
+// → MongoServerError: Modifiers operate on fields but we found type int instead
+
+// ✅ CORRECT
+db.emp.updateOne({ name: "Jawwad" }, { $pullAll: { skills: ["CSS", "GITHUB"] } })
+db.emp.find()
+
+// Rebuild skills, then pull all again to demonstrate
+db.emp.updateOne({ name: "Jawwad" }, { $addToSet: { skills: "FLUTTER" } })
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "HTML" } })
+db.emp.updateOne({ name: "Jawwad" }, { $push: { skills: "CSS" } })
+db.emp.find()
+
+db.emp.updateOne({ name: "Jawwad" }, { $pullAll: { skills: ["HTML", "CSS"] } })
+db.emp.find()
 
 exit
