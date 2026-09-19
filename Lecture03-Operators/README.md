@@ -1,4 +1,4 @@
-# MongoDB Lecture 02 — Query & Update Operators
+# MongoDB Lecture 03 — Query & Update Operators
 
 A hands-on walkthrough of MongoDB **query operators** (logical, comparison, type, array, and regex operators) and **update operators** (field update, array update, and upsert) using `mongosh`.
 
@@ -46,7 +46,7 @@ A hands-on walkthrough of MongoDB **query operators** (logical, comparison, type
 ## 1. Setup — Database & Collection
 
 ```js
-use lecture02
+use lecture03
 
 db.createCollection("emp")
 ```

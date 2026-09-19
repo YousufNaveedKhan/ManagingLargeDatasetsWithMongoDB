@@ -1,5 +1,5 @@
 // ============================================================
-// MongoDB Lecture 02 — Query & Update Operators (Parts 1, 2 & 3 — COMPLETE)
+// MongoDB Lecture 03 — Query & Update Operators (Parts 1, 2 & 3 — COMPLETE)
 // Run these commands inside `mongosh`, one at a time (or in blocks)
 // Environment: MongoDB 6.0.13 | Mongosh 2.10.0
 // ============================================================
@@ -13,7 +13,7 @@
 // 1. SETUP — DATABASE & COLLECTION
 // ------------------------------------------------------------
 
-use lecture02
+use lecture03
 
 db.createCollection("emp")
 
