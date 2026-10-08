@@ -1,9 +1,9 @@
 # MongoDB Lecture 04 — Aggregation Pipeline
 
-> **Status: Part 1 — Work in Progress**
-> This lecture will be continued in a future class. This file (and the accompanying playground file) will be updated and pushed again once more of the lecture is recorded.
+> **Status: Parts 1 & 2 — Work in Progress**
+> One more part of this lecture is still to come. This file (and the accompanying playground file) will be updated and pushed again once more of the lecture is recorded.
 
-An introduction to MongoDB's **Aggregation Pipeline**: filtering, reshaping, sorting, paginating, grouping, and calculating new fields. This lecture was worked on using **MongoDB for VS Code**'s Playground feature instead of `mongosh` in PowerShell — see the setup notes below.
+An introduction to MongoDB's **Aggregation Pipeline**: filtering, reshaping, sorting, paginating, grouping, calculating new fields, counting, and working with string and date expressions. This lecture was worked on using **MongoDB for VS Code**'s Playground feature instead of `mongosh` in PowerShell — see the setup notes below.
 
 > **Environment:** MongoDB 6.0.13 · VS Code + MongoDB for VS Code extension · Local instance (`mongodb://127.0.0.1:27017`)
 
@@ -11,6 +11,7 @@ An introduction to MongoDB's **Aggregation Pipeline**: filtering, reshaping, sor
 
 ## Table of Contents
 
+**Part 1 — Playground setup and core stages**
 - [1. Two Ways to Work with MongoDB](#1-two-ways-to-work-with-mongodb)
 - [2. What Is a Playground, and How to Use One](#2-what-is-a-playground-and-how-to-use-one)
 - [3. Setup — Database & Collection](#3-setup--database--collection)
@@ -23,9 +24,18 @@ An introduction to MongoDB's **Aggregation Pipeline**: filtering, reshaping, sor
 - [10. Stage — $skip and Pagination](#10-stage--skip-and-pagination)
 - [11. Stage — $group](#11-stage--group)
 - [12. Stage — $set and Arithmetic Operators](#12-stage--set-and-arithmetic-operators)
-- [13. Things to Remember](#13-things-to-remember)
-- [14. Quick Reference Cheat Sheet](#14-quick-reference-cheat-sheet)
-- [15. Still To Come](#15-still-to-come)
+
+**Part 2 — Removing fields, rounding, counting, string and date expressions**
+- [13. Stage — $unset](#13-stage--unset)
+- [14. Rounding Numbers — $round, $ceil, $floor](#14-rounding-numbers--round-ceil-floor)
+- [15. Stage — $count](#15-stage--count)
+- [16. String Expressions](#16-string-expressions)
+- [17. Date Expressions](#17-date-expressions)
+
+**Reference**
+- [18. Things to Remember](#18-things-to-remember)
+- [19. Quick Reference Cheat Sheet](#19-quick-reference-cheat-sheet)
+- [20. Still To Come](#20-still-to-come)
 
 ---
 
@@ -519,7 +529,298 @@ Adds a new field `remainder` containing the remainder of `marks` divided by 3.
 
 ---
 
-## 13. Things to Remember
+## 13. Stage — `$unset`
+
+`$unset` **removes** the listed fields from every document in the output. It is the opposite way of thinking from `$project` with `1`: instead of choosing the fields you want to keep, you list the fields you want to drop.
+
+```js
+db.students.aggregate([
+  {
+    $unset: ["city", "course"]
+  }
+])
+```
+
+Every student is returned with all of their fields **except** `city` and `course`.
+
+| Goal | Use |
+|---|---|
+| Keep only a few fields | `$project` with `1` |
+| Drop a few fields and keep everything else | `$unset` (same result as `$project` with `0` on those fields) |
+
+> For a single field you can pass a plain string instead of an array: `{ $unset: "city" }`.
+
+> This is **not** the same as the `$unset` update operator from Lecture 02. That operator permanently removes a field from the stored documents when used with `updateOne()`. This `$unset` stage only hides the fields in the output of the pipeline, and the stored documents stay untouched.
+
+---
+
+## 14. Rounding Numbers — `$round`, `$ceil`, `$floor`
+
+In Part 1 the percentage was rounded to 1 decimal place. The same calculation can be turned into a whole number in three different ways.
+
+### `$round` with 0 places
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      percentage: {
+        $round: [
+          { $multiply: [{ $divide: ["$marks", 300] }, 100] },
+          0
+        ]
+      }
+    }
+  }
+])
+```
+
+The second value in `$round` is the number of **decimal places**. With `0` the result is rounded to the nearest whole number (81.67 becomes 82).
+
+> If a value is exactly halfway, `$round` rounds it to the nearest **even** number: 2.5 becomes 2 and 3.5 becomes 4. This is different from the "always round up at .5" rule used in school maths.
+
+### `$ceil` — always round up
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      percentage: {
+        $ceil: [
+          { $multiply: [{ $divide: ["$marks", 300] }, 100] }
+        ]
+      }
+    }
+  }
+])
+```
+
+`$ceil` always moves to the **next whole number above** (81.2 becomes 82).
+
+### `$floor` — always round down
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      percentage: {
+        $floor: [
+          { $multiply: [{ $divide: ["$marks", 300] }, 100] }
+        ]
+      }
+    }
+  }
+])
+```
+
+`$floor` always moves to the **whole number below** (81.9 becomes 81).
+
+### Comparing the three
+
+| Student | Exact percentage | `$round` (0) | `$ceil` | `$floor` |
+|---|---|---|---|---|
+| Anusha (245 marks) | about 81.67 | 82 | 82 | 81 |
+| Amna (199 marks) | about 66.33 | 66 | 67 | 66 |
+
+If the value is already a whole number, all three return it unchanged. `$ceil` and `$floor` always give whole numbers, so they take no "places" value.
+
+---
+
+## 15. Stage — `$count`
+
+`$count` counts how many documents reach it and returns a **single document** containing that number. The text you give it is the **name of the output field**.
+
+```js
+db.students.aggregate([
+  {
+    $count: 'totalStudentsCount'
+  }
+])
+```
+
+Result (with the 7 students from the setup):
+
+```js
+{ totalStudentsCount: 7 }
+```
+
+- If you put a `$match` stage **before** `$count`, only the matching documents are counted.
+- It does the same job as grouping everything into one group and adding 1 for each document: `{ $group: { _id: null, totalStudentsCount: { $sum: 1 } } }` (the `$group` version also returns an `_id: null` field).
+- If **no** documents reach `$count`, it returns nothing at all, not a document with `0`.
+
+---
+
+## 16. String Expressions
+
+String operators work on text fields. They are usually used inside `$set` to create a new field from existing ones.
+
+### `$concat` — join strings together
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      studentInfo: {
+        $concat: ["$name", " - ", "$course"]
+      }
+    }
+  }
+])
+```
+
+Adds `studentInfo`, for example `"Anusha - Web Development"`. Fields and fixed text can be mixed freely in the array.
+
+> If any value inside `$concat` is `null` or the field is missing, the whole result becomes `null`.
+
+### `$toUpper` — convert to capital letters
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      nameUpper: {
+        $toUpper: "$name"
+      }
+    }
+  }
+])
+```
+
+`"Anusha"` becomes `"ANUSHA"`.
+
+### `$toLower` — convert to small letters
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      courseLower: {
+        $toLower: "$course"
+      }
+    }
+  }
+])
+```
+
+`"Web Development"` becomes `"web development"`.
+
+### `$trim` — remove extra spaces
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      cleanName: {
+        $trim: {
+          input: "$name"
+        }
+      }
+    }
+  }
+])
+```
+
+`$trim` removes whitespace from **both ends** of the text (`"  Anusha  "` becomes `"Anusha"`). The names in this sample data have no extra spaces, so `cleanName` looks the same as `name`; it is useful for messy data entered by users.
+
+> `$trim` also accepts a `chars` option to remove specific characters instead of spaces, and `$ltrim` / `$rtrim` trim only the left or only the right side.
+
+### `$split` — break a string into an array
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      courseWords: {
+        $split: ["$course", " "]
+      }
+    }
+  }
+])
+```
+
+The first value is the text, the second is the **separator**. `"Web Development"` split on a space becomes `["Web", "Development"]`.
+
+| Operator | What it does | Example |
+|---|---|---|
+| `$concat` | Joins strings | `{ $concat: ["$name", " - ", "$course"] }` |
+| `$toUpper` | Capital letters | `{ $toUpper: "$name" }` |
+| `$toLower` | Small letters | `{ $toLower: "$course" }` |
+| `$trim` | Removes spaces from both ends | `{ $trim: { input: "$name" } }` |
+| `$split` | String to array | `{ $split: ["$course", " "] }` |
+
+---
+
+## 17. Date Expressions
+
+Date operators pull a single part (year, month, day) out of a date field.
+
+### Setup — the `enrollmentDate` field
+
+The date examples need a date field, and the students created in Part 1 do not have one yet. Add it first. The dates below are only examples, and the same command is repeated for every student (the full set is in the playground file):
+
+```js
+db.students.updateOne({ name: "Anusha" }, { $set: { enrollmentDate: ISODate("2026-01-15") } })
+db.students.updateOne({ name: "Laiba" },  { $set: { enrollmentDate: ISODate("2026-02-03") } })
+// ... and so on for the remaining students
+```
+
+> The field must be stored as a real **Date** (`ISODate(...)`, see Lecture 03 on data types). If it is stored as a plain string such as `"2026-01-15"`, the date operators will fail with an error.
+
+### Fetch the year — `$year`
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      enrollmentYear: {
+        $year: "$enrollmentDate"
+      }
+    }
+  }
+])
+```
+
+### Fetch the month — `$month`
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      enrollmentMonth: {
+        $month: "$enrollmentDate"
+      }
+    }
+  }
+])
+```
+
+### Fetch the day of the week — `$dayOfWeek`
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      enrollmentDay: {
+        $dayOfWeek: "$enrollmentDate"
+      }
+    }
+  }
+])
+```
+
+For a student enrolled on 15 January 2026:
+
+| Operator | Returns | Result |
+|---|---|---|
+| `$year` | The 4-digit year | `2026` |
+| `$month` | The month number, 1 to 12 (January = 1) | `1` |
+| `$dayOfWeek` | The weekday number, 1 to 7 (Sunday = 1, Saturday = 7) | `5` (Thursday) |
+
+> `$dayOfWeek` gives the **weekday**, not the day of the month. To get the day of the month (1 to 31) use `$dayOfMonth`. Dates are read in UTC unless a timezone is specified.
+
+---
+
+## 18. Things to Remember
 
 | Point | Detail |
 |---|---|
@@ -530,10 +831,15 @@ Adds a new field `remainder` containing the remainder of `marks` divided by 3.
 | New fields from `$group` / `$set` can be used by later stages | e.g. `$sort` by `averageMarks` after `$group` |
 | `$set` = `$addFields` | Same stage, two names |
 | Playground re-runs every line | Comment out `insertMany()` after the first run to avoid duplicate documents |
+| `$unset` stage is not the `$unset` update operator | The stage only hides fields in the output; the update operator permanently removes them from stored documents |
+| `$round` rounds halfway values to the nearest even number | 2.5 becomes 2, 3.5 becomes 4 |
+| `$count` returns nothing when no documents reach it | It does not return `0` |
+| `$concat` returns `null` if any value is `null` or missing | Check your fields before joining them |
+| Date operators need a real Date value | Store dates with `ISODate(...)`, not as strings |
 
 ---
 
-## 14. Quick Reference Cheat Sheet
+## 19. Quick Reference Cheat Sheet
 
 | Task | Command |
 |---|---|
@@ -550,13 +856,22 @@ Adds a new field `remainder` containing the remainder of `marks` divided by 3.
 | Add a calculated field | `{ $set: { newField: { $add: ["$a", "$b"] } } }` |
 | Percentage rounded to 1 decimal | `{ $set: { pct: { $round: [ { $multiply: [ { $divide: ["$marks", 300] }, 100 ] }, 1 ] } } }` |
 | Remainder of a division | `{ $set: { rem: { $mod: ["$marks", 3] } } }` |
+| Remove fields from the output | `{ $unset: ["field1", "field2"] }` |
+| Round to a whole number | `{ $round: [ <value>, 0 ] }` |
+| Round up / round down | `{ $ceil: <value> }` / `{ $floor: <value> }` |
+| Count the documents | `{ $count: "fieldName" }` |
+| Join strings | `{ $set: { full: { $concat: ["$a", " - ", "$b"] } } }` |
+| Capital / small letters | `{ $toUpper: "$field" }` / `{ $toLower: "$field" }` |
+| Remove spaces from both ends | `{ $trim: { input: "$field" } }` |
+| Split a string into an array | `{ $split: ["$field", " "] }` |
+| Get year / month / weekday of a date | `{ $year: "$dateField" }`, `{ $month: "$dateField" }`, `{ $dayOfWeek: "$dateField" }` |
 
 ---
 
-## 15. Still To Come
+## 20. Still To Come
 
-This lecture will be **continued in a future class** — more aggregation stages and operators (such as `$unwind`, `$lookup`, `$count`, `$addFields`-style string and date operators, and more) will be added and pushed to this same file. Check back for updates.
+One more part of this lecture is still to come — more aggregation stages and operators will be added and pushed to this same file. Check back for updates.
 
 ---
 
-*Recorded via a VS Code MongoDB Playground for student reference — MongoDB Aggregation Pipeline (Part 1, in progress).*
+*Recorded via a VS Code MongoDB Playground for student reference — MongoDB Aggregation Pipeline (Parts 1 & 2, in progress).*

@@ -1,6 +1,6 @@
 /* global use, db */
 // MongoDB Playground
-// Lecture 04 — Aggregation Pipeline (PART 1 — IN PROGRESS)
+// Lecture 04 — Aggregation Pipeline (PARTS 1 & 2 — IN PROGRESS)
 // Written and run using the "MongoDB for VS Code" extension's Playground feature.
 // Make sure you are connected to enable completions and to be able to run a playground.
 // Use Ctrl+Space inside a snippet or a string literal to trigger completions.
@@ -308,6 +308,194 @@ db.students.aggregate([
 ])
 
 
+// ============================================================
+// PART 2
+// ============================================================
+
 // ------------------------------------------------------------
-// END OF PART 1 — to be continued in a future class
+// 10. STAGE: $unset — remove fields from the output
+// ------------------------------------------------------------
+
+// $unset => ( $project )
+// NOTE: this is the aggregation STAGE — it only hides fields in the output.
+// It is not the $unset UPDATE operator (Lecture 02), which permanently removes
+// a field from the stored documents.
+db.students.aggregate([
+  {
+    $unset: ["city", "course"]
+  }
+])
+
+
+// ------------------------------------------------------------
+// 11. ROUNDING — $round, $ceil, $floor
+// ------------------------------------------------------------
+
+// Round off ( using $round with 0 )
+db.students.aggregate([
+  {
+    $set: {
+      percentage: {
+        $round: [
+          { $multiply: [{ $divide: ["$marks", 300] }, 100] },
+          0
+        ]
+      }
+    }
+  }
+])
+
+// $ceil — always rounds UP to the next whole number
+db.students.aggregate([
+  {
+    $set: {
+      percentage: {
+        $ceil: [
+          { $multiply: [{ $divide: ["$marks", 300] }, 100] }
+        ]
+      }
+    }
+  }
+])
+
+// $floor — always rounds DOWN to the whole number below
+db.students.aggregate([
+  {
+    $set: {
+      percentage: {
+        $floor: [
+          { $multiply: [{ $divide: ["$marks", 300] }, 100] }
+        ]
+      }
+    }
+  }
+])
+
+
+// ------------------------------------------------------------
+// 12. STAGE: $count
+// ------------------------------------------------------------
+
+// Returns ONE document: { totalStudentsCount: <number> }
+db.students.aggregate([
+  {
+    $count: 'totalStudentsCount'
+  }
+])
+
+
+// ------------------------------------------------------------
+// 13. STRING EXPRESSIONS
+// ------------------------------------------------------------
+
+// $concat — join strings (returns null if any value is null/missing)
+db.students.aggregate([
+  {
+    $set: {
+      studentInfo: {
+        $concat: ["$name", " - ", "$course"]
+      }
+    }
+  }
+])
+
+// $toUpper
+db.students.aggregate([
+  {
+    $set: {
+      nameUpper: {
+        $toUpper: "$name"
+      }
+    }
+  }
+])
+
+// $toLower
+db.students.aggregate([
+  {
+    $set: {
+      courseLower: {
+        $toLower: "$course"
+      }
+    }
+  }
+])
+
+// $trim — removes spaces from both ends
+db.students.aggregate([
+  {
+    $set: {
+      cleanName: {
+        $trim: {
+          input: "$name"
+        }
+      }
+    }
+  }
+])
+
+// $split — string to array
+db.students.aggregate([
+  {
+    $set: {
+      courseWords: {
+        $split: ["$course", " "]
+      }
+    }
+  }
+])
+
+
+// ------------------------------------------------------------
+// 14. DATE EXPRESSIONS
+// ------------------------------------------------------------
+
+// SETUP — the date examples need an "enrollmentDate" field, stored as a real Date
+// (ISODate), not a string. The dates below are only examples — use your own.
+// Safe to run more than once: it only sets a field, it does not insert documents.
+db.students.updateOne({ name: "Anusha" },   { $set: { enrollmentDate: ISODate("2026-01-15") } })
+db.students.updateOne({ name: "Laiba" },    { $set: { enrollmentDate: ISODate("2026-02-03") } })
+db.students.updateOne({ name: "Fatima" },   { $set: { enrollmentDate: ISODate("2026-03-10") } })
+db.students.updateOne({ name: "Zainab" },   { $set: { enrollmentDate: ISODate("2025-11-20") } })
+db.students.updateOne({ name: "Amna" },     { $set: { enrollmentDate: ISODate("2025-12-05") } })
+db.students.updateOne({ name: "Ayesha" },   { $set: { enrollmentDate: ISODate("2026-01-28") } })
+db.students.updateOne({ name: "Khadijah" }, { $set: { enrollmentDate: ISODate("2025-09-12") } })
+
+// Fetch Year
+db.students.aggregate([
+  {
+    $set: {
+      enrollmentYear: {
+        $year: "$enrollmentDate"
+      }
+    }
+  }
+])
+
+// Fetch Month ( 1 to 12, January = 1 )
+db.students.aggregate([
+  {
+    $set: {
+      enrollmentMonth: {
+        $month: "$enrollmentDate"
+      }
+    }
+  }
+])
+
+// Fetch Day of the week ( 1 to 7, Sunday = 1, Saturday = 7 )
+// NOTE: for the day of the MONTH (1 to 31) use $dayOfMonth instead
+db.students.aggregate([
+  {
+    $set: {
+      enrollmentDay: {
+        $dayOfWeek: "$enrollmentDate"
+      }
+    }
+  }
+])
+
+
+// ------------------------------------------------------------
+// END OF PART 2 — one more part to come in a future class
 // ------------------------------------------------------------
