@@ -1,7 +1,6 @@
 # MongoDB Lecture 04 — Aggregation Pipeline
 
-> **Status: Parts 1 & 2 — Work in Progress**
-> One more part of this lecture is still to come. This file (and the accompanying playground file) will be updated and pushed again once more of the lecture is recorded.
+> **Status: Complete.** Parts 1 & 2 were covered in class. Part 3 lists aggregation operators that were **not covered in class** and were added afterwards as reference material (marked clearly in each section).
 
 An introduction to MongoDB's **Aggregation Pipeline**: filtering, reshaping, sorting, paginating, grouping, calculating new fields, counting, and working with string and date expressions. This lecture was worked on using **MongoDB for VS Code**'s Playground feature instead of `mongosh` in PowerShell — see the setup notes below.
 
@@ -32,10 +31,17 @@ An introduction to MongoDB's **Aggregation Pipeline**: filtering, reshaping, sor
 - [16. String Expressions](#16-string-expressions)
 - [17. Date Expressions](#17-date-expressions)
 
+**Part 3 — Additional operators (NOT covered in class)**
+- [18. Accumulators — $top, $bottom, $topN, $bottomN, $first, $last](#18-accumulators--top-bottom-topn-bottomn-first-last)
+- [19. Math Operators — $abs, $pow, $sqrt](#19-math-operators--abs-pow-sqrt)
+- [20. Conditional Expressions — $cond, $switch, $ifNull](#20-conditional-expressions--cond-switch-ifnull)
+- [21. Comparison & Logical Expressions](#21-comparison--logical-expressions)
+- [22. More Stages — $unwind, $replaceWith, $sample, $bucket, $addFields](#22-more-stages--unwind-replacewith-sample-bucket-addfields)
+- [23. More Accumulators — $push, $addToSet, $stdDevPop, $stdDevSamp](#23-more-accumulators--push-addtoset-stddevpop-stddevsamp)
+
 **Reference**
-- [18. Things to Remember](#18-things-to-remember)
-- [19. Quick Reference Cheat Sheet](#19-quick-reference-cheat-sheet)
-- [20. Still To Come](#20-still-to-come)
+- [24. Things to Remember](#24-things-to-remember)
+- [25. Quick Reference Cheat Sheet](#25-quick-reference-cheat-sheet)
 
 ---
 
@@ -820,7 +826,237 @@ For a student enrolled on 15 January 2026:
 
 ---
 
-## 18. Things to Remember
+---
+
+# Part 3 — Additional Operators (NOT Covered in Class)
+
+> The sections below were **not taught in class**. They were added at the end of the course so that the complete list of Aggregation Pipeline operators is in one place. Run them in the playground file (`lecture04-aggregation.mongodb.js`, sections 14–19) against the same `students` collection.
+
+## 18. Accumulators — `$top`, `$bottom`, `$topN`, `$bottomN`, `$first`, `$last`
+
+Accumulators are used inside `$group`. These are extra accumulators beyond `$sum`, `$avg`, `$max`, `$min`:
+
+```js
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course",
+      topStudent: {
+        $top: {
+          sortBy: { marks: -1 },
+          output: { name: "$name", marks: "$marks" }
+        }
+      },
+      bottomStudent: {
+        $bottom: {
+          sortBy: { marks: -1 },
+          output: { name: "$name", marks: "$marks" }
+        }
+      }
+    }
+  }
+])
+```
+
+`$top` returns the **one** document that comes first when sorted, and `$bottom` returns the one that comes last. `$topN` and `$bottomN` do the same for the first `n` documents. `$first` and `$last` simply return the value from the first or last document in the group, in the order the documents arrive.
+
+| Accumulator | Meaning |
+|---|---|
+| `$top` / `$bottom` | The single top / bottom document of the group, after sorting (`sortBy` and `output`) |
+| `$topN` / `$bottomN` | The top / bottom `n` documents of the group (`n`, `sortBy`, `output`) |
+| `$first` / `$last` | The value of a field from the first / last document of the group |
+
+## 19. Math Operators — `$abs`, `$pow`, `$sqrt`
+
+```js
+{ $abs: { $subtract: ["$marks", 200] } }   // absolute difference from 200
+{ $pow: ["$marks", 2] }                    // marks to the power of 2
+{ $sqrt: "$marks" }                        // square root of marks
+```
+
+| Operator | Meaning | Example result (marks = 245) |
+|---|---|---|
+| `$abs` | Absolute (always positive) value | `abs(245 − 200)` = `45` |
+| `$pow` | Power: `[base, exponent]` | `245²` = `60025` |
+| `$sqrt` | Square root | `√245` ≈ `15.65` |
+
+## 20. Conditional Expressions — `$cond`, `$switch`, `$ifNull`
+
+### `$cond` — if / then / else
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      level: {
+        $cond: {
+          if: { $gte: ["$marks", 200] },
+          then: "High",
+          else: "Low"
+        }
+      }
+    }
+  }
+])
+```
+
+A shorter array form does the same thing: `{ $cond: [ <condition>, <valueIfTrue>, <valueIfFalse> ] }`.
+
+```js
+{ $cond: [{ $gte: ["$marks", 150] }, "Pass", "Fail"] }
+```
+
+### `$switch` — several conditions
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      grade: {
+        $switch: {
+          branches: [
+            { case: { $gte: ["$marks", 240] }, then: "A" },
+            { case: { $gte: ["$marks", 200] }, then: "B" },
+            { case: { $gte: ["$marks", 150] }, then: "C" }
+          ],
+          default: "D"
+        }
+      }
+    }
+  }
+])
+```
+
+> The branches are checked **in order** and the first match wins, so put the strictest condition first. `default` is used when no branch matches.
+
+### `$ifNull` — fallback for missing or null values
+
+```js
+{ $ifNull: ["$enrollmentDate", "Not set"] }
+```
+
+If `enrollmentDate` is `null` **or missing**, the output is `"Not set"`; otherwise it is the field's value.
+
+## 21. Comparison & Logical Expressions
+
+Inside an expression, comparison operators return `true` or `false`. Use them inside `$set` or `$cond`.
+
+| Operator | Meaning |
+|---|---|
+| `$eq` / `$ne` | Equal / not equal |
+| `$gt` / `$gte` | Greater than / greater than or equal |
+| `$lt` / `$lte` | Less than / less than or equal |
+| `$and` | `true` only if **all** conditions are true |
+| `$or` | `true` if **any** condition is true |
+| `$not` | Reverses a true / false value |
+
+```js
+db.students.aggregate([
+  {
+    $set: {
+      isKarachiTopper: {
+        $and: [{ $eq: ["$city", "Karachi"] }, { $gt: ["$marks", 200] }]
+      },
+      isLahoreOrIslamabad: {
+        $or: [{ $eq: ["$city", "Lahore"] }, { $eq: ["$city", "Islamabad"] }]
+      },
+      notWebDev: { $ne: ["$course", "Web Development"] },
+      lowMarks: { $lt: ["$marks", 100] }
+    }
+  }
+])
+```
+
+## 22. More Stages — `$unwind`, `$replaceWith`, `$sample`, `$bucket`, `$addFields`
+
+### `$unwind` — one document per array item
+
+```js
+db.students.aggregate([
+  { $set: { courseWords: { $split: ["$course", " "] } } },
+  { $unwind: "$courseWords" },
+  { $project: { _id: 0, name: 1, courseWords: 1 } }
+])
+```
+
+`$unwind` takes an array field and outputs **one document for each item** in it. Here "Web Development" becomes two documents, one with `"Web"` and one with `"Development"`.
+
+### `$replaceWith` — replace the document's shape
+
+```js
+db.students.aggregate([
+  { $replaceWith: { studentName: "$name", location: "$city" } }
+])
+```
+
+Every output document is replaced by the new object you build. (`$replaceRoot` does the same, but takes `{ newRoot: ... }`.)
+
+### `$sample` — random documents
+
+```js
+db.students.aggregate([
+  { $sample: { size: 3 } }
+])
+```
+
+Returns `size` random documents. The result changes every time you run it.
+
+### `$bucket` — group into ranges
+
+```js
+db.students.aggregate([
+  {
+    $bucket: {
+      groupBy: "$marks",
+      boundaries: [0, 100, 200, 300],
+      default: "Other",
+      output: {
+        totalStudents: { $sum: 1 },
+        names: { $push: "$name" }
+      }
+    }
+  }
+])
+```
+
+`boundaries` is a sorted list of range edges: the ranges are 0–99, 100–199 and 200–299. Values outside those ranges go into `default`.
+
+### `$addFields` — same as `$set`
+
+```js
+{ $addFields: { totalMarksOutOf: 300 } }
+```
+
+`$addFields` and `$set` are the same stage (see section 12).
+
+## 23. More Accumulators — `$push`, `$addToSet`, `$stdDevPop`, `$stdDevSamp`
+
+These are used inside `$group`:
+
+```js
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course",
+      names: { $push: "$name" },
+      uniqueCities: { $addToSet: "$city" },
+      marksStdDevPop: { $stdDevPop: "$marks" },
+      marksStdDevSamp: { $stdDevSamp: "$marks" }
+    }
+  }
+])
+```
+
+| Accumulator | Meaning |
+|---|---|
+| `$push` | Collects **every** value of the field into an array (duplicates kept) |
+| `$addToSet` | Collects **unique** values into an array (no duplicates) |
+| `$stdDevPop` | Standard deviation of the values (spread out from the average), for the whole group |
+| `$stdDevSamp` | Standard deviation for a sample; returns `null` if the group has only one document |
+
+---
+
+## 24. Things to Remember
 
 | Point | Detail |
 |---|---|
@@ -839,7 +1075,7 @@ For a student enrolled on 15 January 2026:
 
 ---
 
-## 19. Quick Reference Cheat Sheet
+## 25. Quick Reference Cheat Sheet
 
 | Task | Command |
 |---|---|
@@ -865,13 +1101,19 @@ For a student enrolled on 15 January 2026:
 | Remove spaces from both ends | `{ $trim: { input: "$field" } }` |
 | Split a string into an array | `{ $split: ["$field", " "] }` |
 | Get year / month / weekday of a date | `{ $year: "$dateField" }`, `{ $month: "$dateField" }`, `{ $dayOfWeek: "$dateField" }` |
+| *(Part 3)* Top / bottom document in a group | `{ $group: { _id: "$f", top: { $top: { sortBy: { x: -1 }, output: "$$ROOT" } } } }` |
+| *(Part 3)* Absolute / power / square root | `{ $abs: ... }`, `{ $pow: ["$marks", 2] }`, `{ $sqrt: "$marks" }` |
+| *(Part 3)* If / then / else | `{ $cond: [ <if>, <then>, <else> ] }` |
+| *(Part 3)* Several conditions | `{ $switch: { branches: [ { case: <c>, then: <v> } ], default: <v> } }` |
+| *(Part 3)* Fallback for null / missing | `{ $ifNull: ["$field", "fallback"] }` |
+| *(Part 3)* Compare / combine conditions | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$and`, `$or`, `$not` |
+| *(Part 3)* One document per array item | `{ $unwind: "$arrayField" }` |
+| *(Part 3)* Replace document shape | `{ $replaceWith: { newField: "$field" } }` |
+| *(Part 3)* Random documents | `{ $sample: { size: n } }` |
+| *(Part 3)* Group into ranges | `{ $bucket: { groupBy: "$f", boundaries: [...], default: "Other", output: {...} } }` |
+| *(Part 3)* Collect values in a group | `{ $push: "$f" }` (with duplicates) / `{ $addToSet: "$f" }` (unique) |
+| *(Part 3)* Spread of values in a group | `{ $stdDevPop: "$f" }` / `{ $stdDevSamp: "$f" }` |
 
 ---
 
-## 20. Still To Come
-
-One more part of this lecture is still to come — more aggregation stages and operators will be added and pushed to this same file. Check back for updates.
-
----
-
-*Recorded via a VS Code MongoDB Playground for student reference — MongoDB Aggregation Pipeline (Parts 1 & 2, in progress).*
+*Recorded via a VS Code MongoDB Playground for student reference — MongoDB Aggregation Pipeline (Parts 1, 2 & 3 — complete).*

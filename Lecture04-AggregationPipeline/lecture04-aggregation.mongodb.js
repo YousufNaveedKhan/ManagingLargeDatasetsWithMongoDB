@@ -1,6 +1,6 @@
 /* global use, db */
 // MongoDB Playground
-// Lecture 04 — Aggregation Pipeline (PARTS 1 & 2 — IN PROGRESS)
+// Lecture 04 — Aggregation Pipeline (PARTS 1, 2 & 3 — COMPLETE)
 // Written and run using the "MongoDB for VS Code" extension's Playground feature.
 // Make sure you are connected to enable completions and to be able to run a playground.
 // Use Ctrl+Space inside a snippet or a string literal to trigger completions.
@@ -9,8 +9,9 @@
 // Use 'console.log()' to print to the debug output.
 //
 // TIP: To run just ONE command from this file, select it first, then run the selection.
-// NOTE: This lecture is incomplete — it will be continued and this file
-// updated/pushed again in a future class.
+// NOTE: Parts 1 & 2 were covered in class. Part 3 (sections 15 onwards, at the
+// end of this file) lists operators that were NOT covered in class and were
+// added afterwards for reference.
 
 // ------------------------------------------------------------
 // 1. SETUP — DATABASE & COLLECTION
@@ -497,7 +498,13 @@ db.students.aggregate([
 
 
 // ------------------------------------------------------------
-// END OF PART 2 — one more part to come in a future class
+// ------------------------------------------------------------
+// PART 3 — ADDITIONAL OPERATORS (NOT COVERED IN CLASS — added for reference)
+// ------------------------------------------------------------
+// The sections below (14 onwards) were not taught in class. They are kept
+// here so students can see them. All of them use the same "students" data.
+// ------------------------------------------------------------
+// 14. ACCUMULATORS in $group — $top, $bottom, $topN, $bottomN, $first, $last
 // ------------------------------------------------------------
 
 // $top & $bottom
@@ -558,6 +565,10 @@ db.students.aggregate([
   }
 ]);
 
+// ------------------------------------------------------------
+// 15. MATH — $abs, $pow, $sqrt
+// ------------------------------------------------------------
+
 // $abs, $pow, $sqrt
 db.students.aggregate([
   {
@@ -574,6 +585,164 @@ db.students.aggregate([
 db.students.aggregate([
   {
     $project: { name: 1, marks: 1, squareRoot: { $sqrt: "$marks" }  }
+  }
+]);
+
+// ------------------------------------------------------------
+// 16. CONDITIONAL EXPRESSIONS — $cond, $switch, $ifNull
+// ------------------------------------------------------------
+
+// $cond — long form: if / then / else
+db.students.aggregate([
+  {
+    $set: {
+      level: {
+        $cond: {
+          if: { $gte: ["$marks", 200] },
+          then: "High",
+          else: "Low"
+        }
+      }
+    }
+  }
+]);
+
+// $cond — short array form: [ condition, valueIfTrue, valueIfFalse ]
+db.students.aggregate([
+  {
+    $set: {
+      passStatus: { $cond: [{ $gte: ["$marks", 150] }, "Pass", "Fail"] }
+    }
+  }
+]);
+
+// $switch — several conditions, checked in order; first match wins
+db.students.aggregate([
+  {
+    $set: {
+      grade: {
+        $switch: {
+          branches: [
+            { case: { $gte: ["$marks", 240] }, then: "A" },
+            { case: { $gte: ["$marks", 200] }, then: "B" },
+            { case: { $gte: ["$marks", 150] }, then: "C" }
+          ],
+          default: "D"
+        }
+      }
+    }
+  }
+]);
+
+// $ifNull — use a fallback value when a field is null OR missing
+db.students.aggregate([
+  {
+    $set: {
+      enrollmentDateSafe: { $ifNull: ["$enrollmentDate", "Not set"] }
+    }
+  }
+]);
+
+// ------------------------------------------------------------
+// 17. COMPARISON & LOGICAL EXPRESSIONS — $eq, $ne, $gt, $gte, $lt, $lte, $and, $or
+// ------------------------------------------------------------
+// Inside an expression these return true / false.
+
+db.students.aggregate([
+  {
+    $set: {
+      isKarachiTopper: {
+        $and: [{ $eq: ["$city", "Karachi"] }, { $gt: ["$marks", 200] }]
+      },
+      isLahoreOrIslamabad: {
+        $or: [{ $eq: ["$city", "Lahore"] }, { $eq: ["$city", "Islamabad"] }]
+      },
+      notWebDev: { $ne: ["$course", "Web Development"] },
+      lowMarks: { $lt: ["$marks", 100] }
+    }
+  }
+]);
+
+// ------------------------------------------------------------
+// 18. STAGES — $unwind, $replaceWith, $sample, $bucket, $addFields
+// ------------------------------------------------------------
+
+// $unwind — one output document per array item (courseWords has 2 words for "Web Development")
+db.students.aggregate([
+  { $set: { courseWords: { $split: ["$course", " "] } } },
+  { $unwind: "$courseWords" },
+  { $project: { _id: 0, name: 1, courseWords: 1 } }
+]);
+
+// $replaceWith — replace the whole document with a new shape (alias: $replaceRoot)
+db.students.aggregate([
+  {
+    $replaceWith: {
+      studentName: "$name",
+      location: "$city"
+    }
+  }
+]);
+
+// $sample — random documents (size = how many)
+db.students.aggregate([
+  { $sample: { size: 3 } }
+]);
+
+// $bucket — group documents into ranges of marks
+// boundaries must be sorted; values outside the ranges go to "default"
+db.students.aggregate([
+  {
+    $bucket: {
+      groupBy: "$marks",
+      boundaries: [0, 100, 200, 300],
+      default: "Other",
+      output: {
+        totalStudents: { $sum: 1 },
+        names: { $push: "$name" }
+      }
+    }
+  }
+]);
+
+// $addFields — same as $set (adds a field to every document)
+db.students.aggregate([
+  { $addFields: { totalMarksOutOf: 300 } }
+]);
+
+// ------------------------------------------------------------
+// 19. MORE ACCUMULATORS (inside $group) — $push, $addToSet, $stdDevPop, $stdDevSamp
+// ------------------------------------------------------------
+
+// $push — list ALL values in the group (duplicates kept)
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course",
+      names: { $push: "$name" }
+    }
+  }
+]);
+
+// $addToSet — list UNIQUE values in the group (no duplicates)
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course",
+      uniqueCities: { $addToSet: "$city" }
+    }
+  }
+]);
+
+// $stdDevPop / $stdDevSamp — how spread out the marks are inside each course
+// (a group with only 1 student gives null for $stdDevSamp)
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course",
+      marksStdDevPop: { $stdDevPop: "$marks" },
+      marksStdDevSamp: { $stdDevSamp: "$marks" }
+    }
   }
 ]);
 
