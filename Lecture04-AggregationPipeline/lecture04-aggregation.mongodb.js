@@ -19,20 +19,20 @@
 // Select the database to use.
 use('lecfour');
 
-db.createCollection('students');
+// db.createCollection('students');
 
-// Insert a few documents into the students collection.
-// ⚠️ Run this ONCE only — running the playground again would insert duplicates.
-// After the first run, comment these lines out.
-db.students.insertMany([
-  { 'name': 'Anusha', 'course': 'Web Development', 'marks': 245, 'city': 'Karachi' },
-  { 'name': 'Laiba', 'course': 'Web Development', 'marks': 248, 'city': 'Karachi' },
-  { 'name': 'Fatima', 'course': 'Web Development', 'marks': 149, 'city': 'Lahore' },
-  { 'name': 'Zainab', 'course': 'Data Science', 'marks': 111, 'city': 'Islamabad' },
-  { 'name': 'Amna', 'course': 'Graphic Designing', 'marks': 199, 'city': 'Peshawar' },
-  { 'name': 'Ayesha', 'course': 'Data Science', 'marks': 210, 'city': 'Karachi' },
-  { 'name': 'Khadijah', 'course': 'Web Designing', 'marks': 89, 'city': 'Lahore' },
-]);
+// // Insert a few documents into the students collection.
+// // ⚠️ Run this ONCE only — running the playground again would insert duplicates.
+// // After the first run, comment these lines out.
+// db.students.insertMany([
+//   { 'name': 'Anusha', 'course': 'Web Development', 'marks': 245, 'city': 'Karachi' },
+//   { 'name': 'Laiba', 'course': 'Web Development', 'marks': 248, 'city': 'Karachi' },
+//   { 'name': 'Fatima', 'course': 'Web Development', 'marks': 149, 'city': 'Lahore' },
+//   { 'name': 'Zainab', 'course': 'Data Science', 'marks': 111, 'city': 'Islamabad' },
+//   { 'name': 'Amna', 'course': 'Graphic Designing', 'marks': 199, 'city': 'Peshawar' },
+//   { 'name': 'Ayesha', 'course': 'Data Science', 'marks': 210, 'city': 'Karachi' },
+//   { 'name': 'Khadijah', 'course': 'Web Designing', 'marks': 89, 'city': 'Lahore' },
+// ]);
 
 db.students.find();
 
@@ -499,3 +499,81 @@ db.students.aggregate([
 // ------------------------------------------------------------
 // END OF PART 2 — one more part to come in a future class
 // ------------------------------------------------------------
+
+// $top & $bottom
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course",
+      topStudent: {
+        $top: {
+          sortBy: { marks: -1 }, 
+          output: { name: "$name", marks: "$marks" }
+        }
+      },
+      bottomStudent: {
+        $bottom: {
+          sortBy: { marks: -1 }, 
+          output: { name: "$name", marks: "$marks" }
+        },
+      }
+    }
+  }
+]);
+
+// $topN, $bottomN, $maxN, $minN || n => Number
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course",
+      topTwo: {
+        $topN: {
+          n: 2,
+          sortBy: { marks: -1 }, 
+          output: { name: "$name", marks: "$marks" }
+        }
+      },
+      bottomTwo: {
+        $bottomN: {
+          n: 2,
+          sortBy: { marks: -1 }, 
+          output: { name: "$name", marks: "$marks" }
+        },
+      }
+    }
+  }
+]);
+
+db.students.aggregate([
+  {
+    $group: {
+      _id: "$course", 
+      firstStudent: {
+        $first: "$name"
+      },
+      lastStudent: {
+        $last: "$name"
+      }
+    }
+  }
+]);
+
+// $abs, $pow, $sqrt
+db.students.aggregate([
+  {
+    $project: { name: 1, marks: 1, difference: { $abs: { $subtract: ["$marks", 200] } }}
+  }
+])
+
+db.students.aggregate([
+  {
+    $project: { name: 1, marks: 1, square: { $pow: ["$marks", 2] } }
+  }
+])
+
+db.students.aggregate([
+  {
+    $project: { name: 1, marks: 1, squareRoot: { $sqrt: "$marks" }  }
+  }
+]);
+
